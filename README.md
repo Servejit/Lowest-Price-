@@ -9,7 +9,7 @@ Streamlit app for the daily Excel workbook workflow.
   - `16< D-B / Avg.4` → O2L average
   - `16> C-B / Avg.4` → O2H average
 - Fetches up to the latest 20 trading sessions of daily OHLC data for NSE symbols using Yahoo Finance through yfinance.
-- Fetches intraday 1-minute OHLC data where available and calculates:
+- Fetches intraday 1-minute OHLC data when you manually refresh and calculates:
   - LTP vs lowest Low in the latest 20 sessions
   - Today's O2L = (today's low - today's open) / today's open × 100
   - Today's O2H = (today's high - today's open) / today's open × 100
