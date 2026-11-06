@@ -4,6 +4,7 @@ Streamlit app for the daily Excel workbook workflow.
 
 ## What it does
 - Upload a replacement Excel workbook each day.
+- Automatically reruns and refreshes market data every 30 seconds while the workbook is loaded; manual refresh remains available.
 - Reads stock symbols and the bracketed averages from:
   - `16< D-B / Avg.4` → O2L average
   - `16> C-B / Avg.4` → O2H average
@@ -21,7 +22,7 @@ streamlit run app.py
 ```
 
 ## Important data notes
-- Market data comes from Yahoo Finance and may be delayed, incomplete, or rate-limited. It is not an exchange-authoritative real-time feed.
+- Market data comes from Yahoo Finance and may be delayed, incomplete, or rate-limited. It is not an exchange-authoritative real-time feed. The 30-second setting controls how often the app requests updated data; it does not make Yahoo Finance quotes true live streaming ticks.
 - NSE symbols are looked up with the `.NS` suffix. Symbols unavailable from Yahoo Finance will show a data status instead of fabricated values.
 - The app calculates the 20-session lowest absolute Low from market history, not from the workbook's O2L percentage columns.
 - The uploaded workbook is read at runtime and is not committed to GitHub.
