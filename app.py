@@ -26,7 +26,6 @@ with st.sidebar:
     near_pct = st.slider("Near-low distance (%)", 0.0, 10.0, 1.0, 0.25,
                          help="A stock is near its 20-day low when its LTP is no more than this percentage above that low.")
     only_matches = st.checkbox("Show only stocks meeting all conditions", value=False)
-    refresh = st.button("🔄 Refresh market data", use_container_width=True)
     st.caption("Market quotes are obtained from Yahoo Finance via yfinance. They may be delayed, unavailable, or rate-limited.")
 
 uploaded = st.file_uploader("Upload today's Excel workbook (.xlsx)", type=["xlsx", "xls"])
@@ -145,7 +144,11 @@ except Exception as exc:
     st.stop()
 
 st.success(f"Loaded {len(stocks):,} unique stocks from {len(sheets)} worksheets: {', '.join(sheets)}")
-st.caption("The uploaded workbook supplies each stock's bracketed O2L/O2H averages. The 20-session absolute Low and market OHLC values are fetched separately.")
+dash_left, dash_right = st.columns([3, 1])
+with dash_left:
+    st.caption("The uploaded workbook supplies each stock's bracketed O2L/O2H averages. The 20-session absolute Low and market OHLC values are fetched separately.")
+with dash_right:
+    refresh = st.button("🔄 Refresh market data", use_container_width=True, type="primary")
 
 if st.session_state.get("workbook_name") != uploaded.name:
     st.session_state.pop("market_data", None)
