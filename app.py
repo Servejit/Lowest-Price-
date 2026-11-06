@@ -6,7 +6,6 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 import yfinance as yf
-from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="Lowest Price Stock Scanner", page_icon="📊", layout="wide")
 
@@ -138,10 +137,6 @@ if uploaded is None:
     st.info("Upload the daily Excel workbook to begin. The workbook can be replaced each day.")
     st.stop()
 
-# Trigger a Streamlit rerun every 30 seconds while the workbook is loaded.
-# Market data is downloaded again only when this counter changes or the user
-# presses the manual refresh button.
-refresh_count = st_autorefresh(interval=30_000, limit=None, key="market_auto_refresh")
 
 try:
     stocks, sheets = read_workbook(uploaded)
@@ -155,12 +150,10 @@ st.caption("The uploaded workbook supplies each stock's bracketed O2L/O2H averag
 if st.session_state.get("workbook_name") != uploaded.name:
     st.session_state.pop("market_data", None)
     st.session_state["workbook_name"] = uploaded.name
-    st.session_state.pop("last_auto_refresh_count", None)
 
 should_fetch = (
     refresh
     or "market_data" not in st.session_state
-    or st.session_state.get("last_auto_refresh_count") != refresh_count
 )
 
 if should_fetch:
@@ -169,7 +162,6 @@ if should_fetch:
         st.session_state["market_data"] = get_market_data(stocks["Symbol"].tolist(), bar)
         bar.empty()
         st.session_state["market_fetched_at"] = datetime.now().strftime("%d %b %Y, %I:%M:%S %p")
-        st.session_state["last_auto_refresh_count"] = refresh_count
     except Exception as exc:
         bar.empty()
         st.error(f"Market-data download failed: {exc}")
@@ -189,8 +181,7 @@ c3.metric("Near 20-day low", f"{result['Near 20-day Low'].sum():,}")
 c4.metric("All conditions matched", f"{result['MATCH'].sum():,}")
 
 st.caption(
-    f"Auto-refresh: every 30 seconds · Last market-data fetch: "
-    f"{st.session_state.get('market_fetched_at', '—')}"
+    f"Last market-data fetch: {st.session_state.get('market_fetched_at', '—')}"
 )
 
 def fmt_price(x):
