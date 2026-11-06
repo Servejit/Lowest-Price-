@@ -19,7 +19,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("📊 Lowest Price Stock Scanner")
-st.caption("Compare NSE live/most-recent prices with 20-session lows and today's O2L/O2H against your Excel averages.")
+st.caption("Switch between the 20-session low setup and its opposite 20-session high setup.")
 
 with st.sidebar:
     st.header("Scanner settings")
@@ -96,6 +96,7 @@ def get_market_data(symbols, progress=None):
                     continue
                 last20 = d.tail(20)
                 lowest20 = float(last20["Low"].min())
+                highest20 = float(last20["High"].max())
                 day_open = float(d["Open"].iloc[-1])
                 day_low = float(d["Low"].iloc[-1])
                 day_high = float(d["High"].iloc[-1])
@@ -118,9 +119,11 @@ def get_market_data(symbols, progress=None):
                 o2l_live = ((day_low - day_open) / day_open * 100) if day_open else None
                 o2h_live = ((day_high - day_open) / day_open * 100) if day_open else None
                 distance = ((ltp - lowest20) / lowest20 * 100) if lowest20 else None
+                below_high = ((highest20 - ltp) / highest20 * 100) if highest20 else None
                 results.append({
                     "Symbol": symbol, "Live price": ltp, "20-day lowest Low": lowest20,
-                    "Above 20-day Low (%)": distance, "Today Open": day_open,
+                    "Above 20-day Low (%)": distance, "20-day highest High": highest20,
+                    "Below 20-day High (%)": below_high, "Today Open": day_open,
                     "Today Low": day_low, "O2L live (%)": o2l_live,
                     "Today High": day_high, "O2H live (%)": o2h_live,
                     "Quote status": quote_status,
@@ -144,9 +147,15 @@ except Exception as exc:
     st.stop()
 
 st.success(f"Loaded {len(stocks):,} unique stocks from {len(sheets)} worksheets: {', '.join(sheets)}")
+dashboard_mode = st.radio(
+    "Select dashboard",
+    ["20-day Low Dashboard", "20-day High Dashboard"],
+    horizontal=True,
+    key="dashboard_mode",
+)
 dash_left, dash_right = st.columns([3, 1])
 with dash_left:
-    st.caption("The uploaded workbook supplies each stock's bracketed O2L/O2H averages. The 20-session absolute Low and market OHLC values are fetched separately.")
+    st.caption("The workbook supplies each stock's bracketed O2L/O2H averages. Market OHLC and 20-session price extremes are fetched separately.")
 with dash_right:
     refresh = st.button("🔄 Refresh market data", use_container_width=True, type="primary")
 
@@ -171,21 +180,41 @@ if should_fetch:
         st.stop()
 
 result = stocks.merge(st.session_state["market_data"], on="Symbol", how="left")
+
+# Original 20-day-low dashboard: retain the existing three-condition logic.
 result["Near 20-day Low"] = result["Above 20-day Low (%)"].notna() & (result["Above 20-day Low (%)"] <= near_pct)
-result["O2L condition"] = result["O2L live (%)"].notna() & result["O2L Average (%)"].notna() & (result["O2L live (%)"] <= result["O2L Average (%)"])
-result["O2H condition"] = result["O2H live (%)"].notna() & result["O2H Average (%)"].notna() & (result["O2H live (%)"] <= result["O2H Average (%)"])
-result["MATCH"] = result["Near 20-day Low"] & result["O2L condition"] & result["O2H condition"]
+result["Low dashboard O2L condition"] = result["O2L live (%)"].notna() & result["O2L Average (%)"].notna() & (result["O2L live (%)"] <= result["O2L Average (%)"])
+result["Low dashboard O2H condition"] = result["O2H live (%)"].notna() & result["O2H Average (%)"].notna() & (result["O2H live (%)"] <= result["O2H Average (%)"])
+result["Low dashboard MATCH"] = result["Near 20-day Low"] & result["Low dashboard O2L condition"] & result["Low dashboard O2H condition"]
+
+# Opposite 20-day-high dashboard: near the 20-session highest High,
+# with O2H strictly greater than its average and O2L strictly less.
+result["Near 20-day High"] = result["Below 20-day High (%)"].notna() & (result["Below 20-day High (%)"] <= near_pct)
+result["High dashboard O2H condition"] = result["O2H live (%)"].notna() & result["O2H Average (%)"].notna() & (result["O2H live (%)"] > result["O2H Average (%)"])
+result["High dashboard O2L condition"] = result["O2L live (%)"].notna() & result["O2L Average (%)"].notna() & (result["O2L live (%)"] < result["O2L Average (%)"])
+result["High dashboard MATCH"] = result["Near 20-day High"] & result["High dashboard O2H condition"] & result["High dashboard O2L condition"]
+
+is_high_dashboard = dashboard_mode == "20-day High Dashboard"
+if is_high_dashboard:
+    result["MATCH"] = result["High dashboard MATCH"]
+    result["Near selected 20-day extreme"] = result["Near 20-day High"]
+    match_heading = "Near 20-day high"
+    dashboard_description = "20-day High setup: price is within the selected distance below the highest High of the last 20 sessions; O2H is strictly greater than its average; O2L is strictly less than its average."
+else:
+    result["MATCH"] = result["Low dashboard MATCH"]
+    result["Near selected 20-day extreme"] = result["Near 20-day Low"]
+    match_heading = "Near 20-day low"
+    dashboard_description = "20-day Low setup: price is within the selected distance above the lowest Low of the last 20 sessions; O2L and O2H are each equal to or below their averages."
 
 available = result["Live price"].notna()
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Stocks in workbook", f"{len(result):,}")
 c2.metric("Market quotes found", f"{available.sum():,}")
-c3.metric("Near 20-day low", f"{result['Near 20-day Low'].sum():,}")
+c3.metric(match_heading, f"{result['Near selected 20-day extreme'].sum():,}")
 c4.metric("All conditions matched", f"{result['MATCH'].sum():,}")
 
-st.caption(
-    f"Last market-data fetch: {st.session_state.get('market_fetched_at', '—')}"
-)
+st.caption(dashboard_description)
+st.caption(f"Last market-data fetch: {st.session_state.get('market_fetched_at', '—')}")
 
 def fmt_price(x):
     return f"₹{x:,.2f}" if pd.notna(x) else "—"
@@ -201,18 +230,25 @@ def compare(live, avg):
 display = result.copy()
 display["Price vs 20-day Low"] = display.apply(
     lambda r: f"{fmt_price(r.get('Live price'))} vs {fmt_price(r.get('20-day lowest Low'))} ({fmt_pct(r.get('Above 20-day Low (%)'))})", axis=1)
+display["Price vs 20-day High"] = display.apply(
+    lambda r: f"{fmt_price(r.get('Live price'))} vs {fmt_price(r.get('20-day highest High'))} ({fmt_pct(r.get('Below 20-day High (%)'))} below)", axis=1)
 display["O2L comparison"] = display.apply(lambda r: compare(r.get("O2L live (%)"), r.get("O2L Average (%)")), axis=1)
 display["O2H comparison"] = display.apply(lambda r: compare(r.get("O2H live (%)"), r.get("O2H Average (%)")), axis=1)
 
 if only_matches:
     display = display[display["MATCH"]]
 else:
+    sort_distance = "Below 20-day High (%)" if is_high_dashboard else "Above 20-day Low (%)"
     display = display.sort_values(
-        ["MATCH", "Above 20-day Low (%)"], ascending=[False, True], na_position="last"
+        ["MATCH", sort_distance], ascending=[False, True], na_position="last"
     )
 
-columns = ["Symbol", "Price vs 20-day Low", "O2L comparison", "O2H comparison",
-           "Near 20-day Low", "O2L condition", "O2H condition", "MATCH", "Quote status"]
+if is_high_dashboard:
+    columns = ["Symbol", "Price vs 20-day High", "O2H comparison", "O2L comparison",
+               "Near 20-day High", "High dashboard O2H condition", "High dashboard O2L condition", "MATCH", "Quote status"]
+else:
+    columns = ["Symbol", "Price vs 20-day Low", "O2L comparison", "O2H comparison",
+               "Near 20-day Low", "Low dashboard O2L condition", "Low dashboard O2H condition", "MATCH", "Quote status"]
 st.subheader("Stock comparison")
 st.dataframe(display[[c for c in columns if c in display.columns]],
              use_container_width=True, hide_index=True, height=620)
@@ -222,4 +258,4 @@ st.download_button("⬇️ Download complete results (CSV)", csv,
                    file_name=f"lowest_price_scan_{datetime.now():%Y%m%d_%H%M}.csv",
                    mime="text/csv")
 
-st.caption("Condition logic: LTP must be within the selected distance above the lowest Low of the last 20 trading sessions; today's O2L must be equal to or below the bracketed O2L average; and today's O2H must be equal to or below the bracketed O2H average. Missing market data is never treated as a match.")
+st.caption("Missing market data is never treated as a match. The High dashboard uses strict greater-than / less-than comparisons exactly as requested; the Low dashboard retains its original less-than-or-equal comparisons.")
