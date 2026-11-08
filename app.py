@@ -116,8 +116,10 @@ def get_market_data(symbols, progress=None):
                         ltp = float(intr["Close"].iloc[-1])
                         quote_status = "Intraday quote (may be delayed)"
 
-                o2l_live = ((day_low - day_open) / day_open * 100) if day_open else None
-                o2h_live = ((day_high - day_open) / day_open * 100) if day_open else None
+                # O2L is today's move from today's Open down to today's Low.
+                # O2H is today's move from today's Open up to today's High.
+                o2l_live = ((day_low - day_open) / day_open * 100) if pd.notna(day_open) and day_open > 0 and pd.notna(day_low) else None
+                o2h_live = ((day_high - day_open) / day_open * 100) if pd.notna(day_open) and day_open > 0 and pd.notna(day_high) else None
                 distance = ((ltp - lowest20) / lowest20 * 100) if lowest20 else None
                 below_high = ((highest20 - ltp) / highest20 * 100) if highest20 else None
                 results.append({
@@ -155,7 +157,7 @@ dashboard_mode = st.radio(
 )
 dash_left, dash_right = st.columns([3, 1])
 with dash_left:
-    st.caption("The workbook supplies each stock's bracketed O2L/O2H averages. Market OHLC and 20-session price extremes are fetched separately.")
+    st.caption("O2L comparison = today's Open-to-Low % versus the workbook O2L average. O2H comparison = today's Open-to-High % versus the workbook O2H average. Market OHLC and 20-session price extremes are fetched separately.")
 with dash_right:
     refresh = st.button("🔄 Refresh market data", use_container_width=True, type="primary")
 
@@ -258,4 +260,4 @@ st.download_button("⬇️ Download complete results (CSV)", csv,
                    file_name=f"lowest_price_scan_{datetime.now():%Y%m%d_%H%M}.csv",
                    mime="text/csv")
 
-st.caption("Missing market data is never treated as a match. The High dashboard uses strict greater-than / less-than comparisons exactly as requested; the Low dashboard retains its original less-than-or-equal comparisons.")
+st.caption("O2L comparison shows (Today Low - Today Open) / Today Open x 100 versus the workbook O2L average. O2H comparison shows (Today High - Today Open) / Today Open x 100 versus the workbook O2H average. Missing market data is never treated as a match. The High dashboard uses strict greater-than / less-than comparisons exactly as requested; the Low dashboard retains its original less-than-or-equal comparisons.")
