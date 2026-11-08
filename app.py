@@ -277,10 +277,10 @@ else:
     )
 
 if is_high_dashboard:
-    columns = ["Symbol", "Session date", "Price vs 20-day High", "O2H comparison", "O2L comparison",
+    columns = ["Symbol", "Session date", "Today Open", "Today High", "Today Low", "Price vs 20-day High", "O2H comparison", "O2L comparison",
                "Near 20-day High", "High dashboard O2H condition", "High dashboard O2L condition", "MATCH", "Quote status"]
 else:
-    columns = ["Symbol", "Session date", "Price vs 20-day Low", "O2L comparison", "O2H comparison",
+    columns = ["Symbol", "Session date", "Today Open", "Today High", "Today Low", "Price vs 20-day Low", "O2L comparison", "O2H comparison",
                "Near 20-day Low", "Low dashboard O2L condition", "Low dashboard O2H condition", "MATCH", "Quote status"]
 st.subheader("Stock comparison")
 st.dataframe(display[[c for c in columns if c in display.columns]],
@@ -291,4 +291,4 @@ st.download_button("⬇️ Download complete results (CSV)", csv,
                    file_name=f"lowest_price_scan_{datetime.now():%Y%m%d_%H%M}.csv",
                    mime="text/csv")
 
-st.caption("O2L = (session Low − session Open) / session Open × 100. O2H = (session High − session Open) / session Open × 100. The session date and quote source are displayed so a previous-session candle is not mistaken for today. Yahoo Finance quotes can be delayed; for exchange-grade real-time values, connect an authorized broker feed.")
+st.caption("For every stock: O2L (%) = (Today Low − Today Open) / Today Open × 100. O2H (%) = (Today High − Today Open) / Today Open × 100. Open, High and Low are shown beside the calculated percentages for verification. The session date and quote source are displayed. Yahoo Finance data may be delayed.")
