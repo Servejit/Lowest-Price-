@@ -107,14 +107,14 @@ def get_market_data(symbols, progress=None):
                     intr = intraday[ticker].dropna(how="all") if ticker in intraday.columns.get_level_values(0) else pd.DataFrame()
                 else:
                     intr = intraday.dropna(how="all") if len(batch) == 1 else pd.DataFrame()
-                if not intr.empty and {"Open", "Low", "High", "Close"}.issubset(intr.columns):
+                if not intr.empty and {"Close"}.issubset(intr.columns):
+                    # Intraday data is used ONLY for the latest traded price.
+                    # O2L/O2H must use the current session's daily candle
+                    # Open, Low and High from the daily OHLC dataset above.
                     intr = intr.dropna(subset=["Close"])
                     if not intr.empty:
-                        day_open = float(intr["Open"].dropna().iloc[0]) if intr["Open"].notna().any() else day_open
-                        day_low = float(intr["Low"].min())
-                        day_high = float(intr["High"].max())
                         ltp = float(intr["Close"].iloc[-1])
-                        quote_status = "Intraday quote (may be delayed)"
+                        quote_status = "Intraday LTP; O2L/O2H from daily OHLC (may be delayed)"
 
                 # O2L is today's move from today's Open down to today's Low.
                 # O2H is today's move from today's Open up to today's High.
