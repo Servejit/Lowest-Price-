@@ -74,67 +74,98 @@ def read_workbook(file_obj):
 
 def get_market_data(symbols, progress=None):
     results = []
-    # Download in batches to reduce requests and avoid one request per stock.
     batch_size = 35
+
     for start in range(0, len(symbols), batch_size):
         batch = symbols[start:start + batch_size]
         tickers = [s + ".NS" for s in batch]
-        daily = yf.download(tickers=tickers, period="2mo", interval="1d",
-                            group_by="ticker", auto_adjust=False, progress=False,
-                            threads=True, timeout=25)
-        intraday = yf.download(tickers=tickers, period="1d", interval="1m",
-                               group_by="ticker", auto_adjust=False, progress=False,
-                               threads=True, timeout=25)
+
+        daily = yf.download(
+            tickers=tickers, period="2mo", interval="1d",
+            group_by="ticker", auto_adjust=False, progress=False,
+            threads=True, timeout=25
+        )
+        intraday = yf.download(
+            tickers=tickers, period="1d", interval="1m",
+            group_by="ticker", auto_adjust=False, progress=False,
+            threads=True, timeout=25
+        )
+
         for symbol, ticker in zip(batch, tickers):
             try:
                 if isinstance(daily.columns, pd.MultiIndex):
                     d = daily[ticker].dropna(how="all") if ticker in daily.columns.get_level_values(0) else pd.DataFrame()
                 else:
                     d = daily.dropna(how="all") if len(batch) == 1 else pd.DataFrame()
+
                 if d.empty or not {"Low", "Open", "High", "Close"}.issubset(d.columns):
                     results.append({"Symbol": symbol, "Quote status": "No daily data"})
                     continue
+
                 last20 = d.tail(20)
                 lowest20 = float(last20["Low"].min())
                 highest20 = float(last20["High"].max())
-                day_open = float(d["Open"].iloc[-1])
-                day_low = float(d["Low"].iloc[-1])
-                day_high = float(d["High"].iloc[-1])
-                ltp = float(d["Close"].iloc[-1])
-                quote_status = "Latest daily close (not live)"
+
+                daily_row = d.iloc[-1]
+                day_open = float(daily_row["Open"])
+                day_low = float(daily_row["Low"])
+                day_high = float(daily_row["High"])
+                ltp = float(daily_row["Close"])
+                session_date = pd.Timestamp(d.index[-1]).strftime("%d %b %Y")
+                quote_status = f"Daily candle only — {session_date}; not live"
 
                 if isinstance(intraday.columns, pd.MultiIndex):
                     intr = intraday[ticker].dropna(how="all") if ticker in intraday.columns.get_level_values(0) else pd.DataFrame()
                 else:
                     intr = intraday.dropna(how="all") if len(batch) == 1 else pd.DataFrame()
-                if not intr.empty and {"Close"}.issubset(intr.columns):
-                    # Intraday data is used ONLY for the latest traded price.
-                    # O2L/O2H must use the current session's daily candle
-                    # Open, Low and High from the daily OHLC dataset above.
-                    intr = intr.dropna(subset=["Close"])
-                    if not intr.empty:
-                        ltp = float(intr["Close"].iloc[-1])
-                        quote_status = "Intraday LTP; O2L/O2H from daily OHLC (may be delayed)"
 
-                # O2L is today's move from today's Open down to today's Low.
-                # O2H is today's move from today's Open up to today's High.
-                o2l_live = ((day_low - day_open) / day_open * 100) if pd.notna(day_open) and day_open > 0 and pd.notna(day_low) else None
-                o2h_live = ((day_high - day_open) / day_open * 100) if pd.notna(day_open) and day_open > 0 and pd.notna(day_high) else None
+                # Use actual 1-minute session candles for Open, running Low,
+                # running High and LTP instead of relying on a possibly stale
+                # daily candle while the market is trading.
+                required = {"Open", "High", "Low", "Close"}
+                if not intr.empty and required.issubset(intr.columns):
+                    intr = intr.dropna(subset=["Close"]).sort_index()
+                    if not intr.empty:
+                        intraday_date = pd.Timestamp(intr.index[-1]).strftime("%d %b %Y")
+                        first_open = intr["Open"].dropna()
+                        highs = intr["High"].dropna()
+                        lows = intr["Low"].dropna()
+
+                        if not first_open.empty and not highs.empty and not lows.empty:
+                            day_open = float(first_open.iloc[0])
+                            day_high = float(highs.max())
+                            day_low = float(lows.min())
+                            ltp = float(intr["Close"].iloc[-1])
+                            session_date = intraday_date
+                            quote_status = f"1-minute session OHLC — {session_date}; Yahoo data may be delayed"
+
+                o2l_live = ((day_low - day_open) / day_open * 100) if day_open > 0 else None
+                o2h_live = ((day_high - day_open) / day_open * 100) if day_open > 0 else None
                 distance = ((ltp - lowest20) / lowest20 * 100) if lowest20 else None
                 below_high = ((highest20 - ltp) / highest20 * 100) if highest20 else None
+
                 results.append({
-                    "Symbol": symbol, "Live price": ltp, "20-day lowest Low": lowest20,
-                    "Above 20-day Low (%)": distance, "20-day highest High": highest20,
-                    "Below 20-day High (%)": below_high, "Today Open": day_open,
-                    "Today Low": day_low, "O2L live (%)": o2l_live,
-                    "Today High": day_high, "O2H live (%)": o2h_live,
+                    "Symbol": symbol,
+                    "Live price": ltp,
+                    "20-day lowest Low": lowest20,
+                    "Above 20-day Low (%)": distance,
+                    "20-day highest High": highest20,
+                    "Below 20-day High (%)": below_high,
+                    "Session date": session_date,
+                    "Today Open": day_open,
+                    "Today Low": day_low,
+                    "O2L live (%)": o2l_live,
+                    "Today High": day_high,
+                    "O2H live (%)": o2h_live,
                     "Quote status": quote_status,
                     "20 sessions checked": len(last20),
                 })
             except Exception as exc:
                 results.append({"Symbol": symbol, "Quote status": f"Data error: {str(exc)[:100]}"})
+
         if progress:
             progress.progress(min((start + len(batch)) / len(symbols), 1.0))
+
     return pd.DataFrame(results)
 
 if uploaded is None:
@@ -157,7 +188,7 @@ dashboard_mode = st.radio(
 )
 dash_left, dash_right = st.columns([3, 1])
 with dash_left:
-    st.caption("O2L comparison = today's Open-to-Low % versus the workbook O2L average. O2H comparison = today's Open-to-High % versus the workbook O2H average. Market OHLC and 20-session price extremes are fetched separately.")
+    st.caption("O2L/O2H use the session Open, running Low and running High from 1-minute candles when available; the session date and quote source are shown in the table.")
 with dash_right:
     refresh = st.button("🔄 Refresh market data", use_container_width=True, type="primary")
 
@@ -246,10 +277,10 @@ else:
     )
 
 if is_high_dashboard:
-    columns = ["Symbol", "Price vs 20-day High", "O2H comparison", "O2L comparison",
+    columns = ["Symbol", "Session date", "Price vs 20-day High", "O2H comparison", "O2L comparison",
                "Near 20-day High", "High dashboard O2H condition", "High dashboard O2L condition", "MATCH", "Quote status"]
 else:
-    columns = ["Symbol", "Price vs 20-day Low", "O2L comparison", "O2H comparison",
+    columns = ["Symbol", "Session date", "Price vs 20-day Low", "O2L comparison", "O2H comparison",
                "Near 20-day Low", "Low dashboard O2L condition", "Low dashboard O2H condition", "MATCH", "Quote status"]
 st.subheader("Stock comparison")
 st.dataframe(display[[c for c in columns if c in display.columns]],
@@ -260,4 +291,4 @@ st.download_button("⬇️ Download complete results (CSV)", csv,
                    file_name=f"lowest_price_scan_{datetime.now():%Y%m%d_%H%M}.csv",
                    mime="text/csv")
 
-st.caption("O2L comparison shows (Today Low - Today Open) / Today Open x 100 versus the workbook O2L average. O2H comparison shows (Today High - Today Open) / Today Open x 100 versus the workbook O2H average. Missing market data is never treated as a match. The High dashboard uses strict greater-than / less-than comparisons exactly as requested; the Low dashboard retains its original less-than-or-equal comparisons.")
+st.caption("O2L = (session Low − session Open) / session Open × 100. O2H = (session High − session Open) / session Open × 100. The session date and quote source are displayed so a previous-session candle is not mistaken for today. Yahoo Finance quotes can be delayed; for exchange-grade real-time values, connect an authorized broker feed.")
