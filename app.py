@@ -28,7 +28,34 @@ with st.sidebar:
     only_matches = st.checkbox("Show only stocks meeting all conditions", value=False)
     st.caption("Market quotes are obtained from Yahoo Finance via yfinance. They may be delayed, unavailable, or rate-limited.")
 
-uploaded = st.file_uploader("Upload today's Excel workbook (.xlsx)", type=["xlsx", "xls"])
+uploaded_file = st.file_uploader(
+    "Upload today's Excel workbook (.xlsx)",
+    type=["xlsx", "xls"],
+    key="daily_workbook_uploader",
+)
+
+# Keep the uploaded workbook in this browser session across Streamlit reruns.
+# Compare file contents, not just filenames, so a replacement with the same
+# filename is detected correctly.
+if uploaded_file is not None:
+    new_file_bytes = uploaded_file.getvalue()
+    import hashlib
+    new_file_hash = hashlib.sha256(new_file_bytes).hexdigest()
+
+    if new_file_hash != st.session_state.get("workbook_hash"):
+        st.session_state["workbook_bytes"] = new_file_bytes
+        st.session_state["workbook_name"] = uploaded_file.name
+        st.session_state["workbook_hash"] = new_file_hash
+        st.session_state.pop("market_data", None)
+        st.session_state.pop("market_fetched_at", None)
+
+if "workbook_bytes" not in st.session_state:
+    st.info("Upload the daily Excel workbook to begin. It will stay loaded during this session until you upload a replacement.")
+    st.stop()
+
+# Re-create a file-like object from the saved bytes on every rerun.
+uploaded = io.BytesIO(st.session_state["workbook_bytes"])
+uploaded.name = st.session_state.get("workbook_name", "uploaded_workbook.xlsx")
 
 def numeric_from_bracket(value):
     if pd.isna(value):
@@ -168,11 +195,6 @@ def get_market_data(symbols, progress=None):
 
     return pd.DataFrame(results)
 
-if uploaded is None:
-    st.info("Upload the daily Excel workbook to begin. The workbook can be replaced each day.")
-    st.stop()
-
-
 try:
     stocks, sheets = read_workbook(uploaded)
 except Exception as exc:
@@ -191,10 +213,6 @@ with dash_left:
     st.caption("O2L/O2H use the session Open, running Low and running High from 1-minute candles when available; the session date and quote source are shown in the table.")
 with dash_right:
     refresh = st.button("🔄 Refresh market data", use_container_width=True, type="primary")
-
-if st.session_state.get("workbook_name") != uploaded.name:
-    st.session_state.pop("market_data", None)
-    st.session_state["workbook_name"] = uploaded.name
 
 should_fetch = (
     refresh
