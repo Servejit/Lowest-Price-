@@ -322,15 +322,32 @@ with dash_left:
 with dash_right:
     refresh = st.button("🔄 Refresh market data", use_container_width=True, type="primary")
 
+# Fetch only the symbols needed by the selected dashboard.
+# The Blue/Green dashboard downloads market data exclusively for coloured
+# column-A symbols; the other dashboards continue to use the full workbook.
+if dashboard_mode == "Blue/Green Stocks Dashboard":
+    selected_stocks = stocks[stocks["Blue/Green"]].copy()
+    market_symbols = selected_stocks["Symbol"].drop_duplicates().tolist()
+else:
+    selected_stocks = stocks.copy()
+    market_symbols = selected_stocks["Symbol"].drop_duplicates().tolist()
+
+if not market_symbols:
+    st.warning("No blue or green filled Symbol cells were found in column A of either worksheet.")
+    st.stop()
+
+cached_symbols = st.session_state.get("market_data_symbols", [])
 should_fetch = (
     refresh
     or "market_data" not in st.session_state
+    or set(cached_symbols) != set(market_symbols)
 )
 
 if should_fetch:
-    bar = st.progress(0, text="Fetching market data. This can take a few minutes for a large stock list...")
+    bar = st.progress(0, text=f"Fetching market data for {len(market_symbols):,} selected stocks...")
     try:
-        st.session_state["market_data"] = get_market_data(stocks["Symbol"].tolist(), bar)
+        st.session_state["market_data"] = get_market_data(market_symbols, bar)
+        st.session_state["market_data_symbols"] = market_symbols
         bar.empty()
         st.session_state["market_fetched_at"] = datetime.now().strftime("%d %b %Y, %I:%M:%S %p")
     except Exception as exc:
@@ -338,7 +355,9 @@ if should_fetch:
         st.error(f"Market-data download failed: {exc}")
         st.stop()
 
-result = stocks.merge(st.session_state["market_data"], on="Symbol", how="left")
+# Merge only the stocks selected for this dashboard, never the full workbook
+# in the Blue/Green view.
+result = selected_stocks.merge(st.session_state["market_data"], on="Symbol", how="left")
 
 # Original 20-day-low dashboard: retain the existing three-condition logic.
 result["Near 20-day Low"] = result["Above 20-day Low (%)"].notna() & (result["Above 20-day Low (%)"] <= near_pct)
@@ -442,8 +461,8 @@ st.subheader("Stock comparison")
 st.dataframe(display[[c for c in columns if c in display.columns]],
              use_container_width=True, hide_index=True, height=620)
 
-csv = result.to_csv(index=False).encode("utf-8-sig")
-st.download_button("⬇️ Download complete results (CSV)", csv,
+csv = view_result.to_csv(index=False).encode("utf-8-sig")
+st.download_button("⬇️ Download this dashboard's results (CSV)", csv,
                    file_name=f"lowest_price_scan_{datetime.now():%Y%m%d_%H%M}.csv",
                    mime="text/csv")
 
