@@ -441,9 +441,11 @@ if only_matches:
     display = display[display["MATCH"]]
 else:
     if is_blue_green_dashboard:
+        # Keep matching stocks first, then order the remaining stocks by
+        # distance above the 20-day Low, matching the Low dashboard sorting.
         display = display.sort_values(
-            ["MATCH", "Low dashboard MATCH", "High dashboard MATCH"],
-            ascending=[False, False, False], na_position="last"
+            ["MATCH", "Above 20-day Low (%)"],
+            ascending=[False, True], na_position="last"
         )
     else:
         sort_distance = "Below 20-day High (%)" if is_high_dashboard else "Above 20-day Low (%)"
