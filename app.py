@@ -180,8 +180,15 @@ def read_workbook(file_obj):
             cell_colour = classify_symbol_cell(
                 worksheet.cell(row=excel_row, column=1), style_book, theme_rgb
             )
-            if cell_colour:
-                marked_colours.setdefault(symbol, set()).add(cell_colour)
+
+            # Apply sheet-specific colour rules for the Blue/Green dashboard:
+            # AutoBlue contributes BLUE cells only; AutoGreen contributes
+            # GREEN cells only. Other worksheets do not contribute symbols.
+            sheet_key = str(sheet).strip().lower()
+            if sheet_key == "autoblue" and cell_colour == "Blue":
+                marked_colours.setdefault(symbol, set()).add("Blue")
+            elif sheet_key == "autogreen" and cell_colour == "Green":
+                marked_colours.setdefault(symbol, set()).add("Green")
 
             records.append({
                 "Symbol": symbol,
